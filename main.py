@@ -8,29 +8,28 @@ import jwt
 import datetime
 import sqlite3
 
-db = sqlite3.connect('totally_not_my_privateKeys.db')
-cursor = db.cursor()
+def setupDatabase():
+    db = sqlite3.connect('totally_not_my_privateKeys.db')
+    cursor = db.cursor()
 
-cursor.execute("DROP TABLE IF EXISTS keys")
+    cursor.execute("DROP TABLE IF EXISTS keys")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS keys(
-    kid INTEGER PRIMARY KEY AUTOINCREMENT,
-    key BLOB NOT NULL,
-    exp INTEGER NOT NULL
-)""")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS keys(
+        kid INTEGER PRIMARY KEY AUTOINCREMENT,
+        key BLOB NOT NULL,
+        exp INTEGER NOT NULL
+    )""")
+    return {
+        "cursor": cursor,
+        "db": db
+    }
 
-def insertKey(kid:str, key, exp:int):
-    cursor.execute("INSERT INTO keys (kid, key, exp) VALUES (?, ?, ?)", (kid, key, exp))
-    db.commit()
+def insertKey(kid:str, key, exp:int, dbinfo):
+    dbinfo["cursor"].execute("INSERT INTO keys (kid, key, exp) VALUES (?, ?, ?)", (kid, key, exp))
+    dbinfo["db"].commit()
 
-#add expired key
-### END OF CALEB CODE
-
-hostName = "localhost"
-serverPort = 8080
-
-def insert_expired_key():
+def insert_expired_key(dbinfo):
     private_key = rsa.generate_private_key(
     public_exponent=65537,
     key_size=2048,
@@ -53,9 +52,14 @@ def insert_expired_key():
     numbers = private_key.private_numbers()
 
     #insert expired key
-    insertKey(str(0000), pem, 1)
+    insertKey(str(0000), pem, 1, dbinfo)
 
-insert_expired_key()
+dbinfo = setupDatabase()
+insert_expired_key(dbinfo)
+### END OF CALEB CODE
+
+hostName = "localhost"
+serverPort = 8080
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -127,7 +131,7 @@ class MyServer(BaseHTTPRequestHandler):
                 headers["kid"] = str(0000) #expired
                 token_payload["exp"] = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
             
-            insertKey(headers["kid"], pem, int(token_payload["exp"].timestamp()))
+            insertKey(headers["kid"], pem, int(token_payload["exp"].timestamp()), dbinfo)
             
             encoded_jwt = jwt.encode(token_payload, pem, algorithm="RS256", headers=headers)
             self.send_response(200)
